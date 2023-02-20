@@ -12,7 +12,6 @@ import { Request } from 'express';
 
 @Controller('users')
 export class UserController {
-
   @Get()
   getUsers(): string {
     return 'Ahmedim';
@@ -30,7 +29,7 @@ export class UserController {
 
   @Get('req')
   getRequest(@Req() req: Request): string {
-    //console.log('req', req.method);
+    // console.log('req', req);
     return 'req';
   }
 
