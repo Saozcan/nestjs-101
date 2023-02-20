@@ -107,7 +107,7 @@ Program C C++ gibi dillerde olduğu gibi main üzerinden başlıyor.
 
   * Görüldüğü üzere "nest g mo user" komutu kullanılarak yeni bir controller oluşturulabilir. Bunun içinde get post istekleri karşılanabilir.
   * service dosyasında yapılacka olan işlemler tutulur.
-    ```bash
+    ```typescript
     cats.service.tsJS
 
     import { Injectable } from '@nestjs/common';
@@ -129,7 +129,7 @@ Program C C++ gibi dillerde olduğu gibi main üzerinden başlıyor.
 
 Service dosyası oluşturulduktan sonra controller içine constructor olarak eklenir.
 
-```bash
+```typescript
 cats.controller.tsJS
 
 import { Controller, Get, Post, Body } from '@nestjs/common';
@@ -165,7 +165,7 @@ export class CatsController {
   * export -> Dışarıya aktarılacak export işlemleri
 * Bütün moduller eklendinten sonra genel modül export edilerek app kısmına bağlanır.
 
-```bash
+```typescript
 cats/cats.module.tsJS
 
 import { Module } from '@nestjs/common';
@@ -179,7 +179,7 @@ import { CatsService } from './cats.service';
 export class CatsModule {}
 ```
 
-```bash
+```typescript
 app.module.tsJS
 
 import { Module } from '@nestjs/common';
@@ -195,7 +195,7 @@ export class AppModule {}
 ### Decorator pattern
 
 * Control içindeki isteklerin karşılanması için yazılan işlemler içinde @Req @Res ...vb gibi işlemlere genel olarak Decorator denir. Custom olarak yapılabilir.
-  ```bash
+  ```typescript
   user.decorator.tsJS
 
   import { createParamDecorator, ExecutionContext } from '@nestjs/common';
@@ -208,10 +208,350 @@ export class AppModule {}
   );
   ```
 
-```bash
+```typescript
 @Get()
 async findOne(@User() user: UserEntity) {
   console.log(user);
 }
+```
 
+
+### Middleware
+
+* REST işlemleri öncesi kontrol mekanizması gibi çalışır. Gelen request incelenerek yönlendirme yapılabilir.
+
+```typescript
+logger.middleware.tsJS
+
+import { Injectable, NestMiddleware } from '@nestjs/common';
+import { Request, Response, NextFunction } from 'express';
+
+@Injectable()
+export class LoggerMiddleware implements NestMiddleware {
+  use(req: Request, res: Response, next: NextFunction) {
+    console.log('Request...');
+    next();
+  }
+}
+```
+
+nest mi < name > konsol komutu ile oluşturulabilir.
+
+Ayrı bir dosyası olmayıp app.module altında işlemler gerçekleştirilir. Genel dosya yapısı.
+
+```typescript
+app.module.tsJS
+
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { LoggerMiddleware } from './common/middleware/logger.middleware';
+import { CatsModule } from './cats/cats.module';
+
+@Module({
+  imports: [CatsModule],
+})
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(LoggerMiddleware)
+      .forRoutes('cats');
+  }
+}
+```
+
+```bash
+
+forRoutes({ path: 'ab*cd', method: RequestMethod.ALL });
+```
+
+Wildcard işlemi pathlerde olduğu gibi middleware işlemi içinde de yapılabilir.
+
+```typescript
+app.module.tsJS
+
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
+import { LoggerMiddleware } from './common/middleware/logger.middleware';
+import { CatsModule } from './cats/cats.module';
+import { CatsController } from './cats/cats.controller';
+
+@Module({
+  imports: [CatsModule],
+})
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(LoggerMiddleware)
+      .forRoutes(CatsController);
+  }
+}
+```
+
+forRoutes işlemi string, stringler veya direk controller alarakta çalışabilir.
+
+
+###### Excluding routes[#](https://docs.nestjs.com/middleware#excluding-routes)
+
+At times we want to **exclude** certain routes from having the middleware applied. We can easily exclude certain routes with the `exclude()` method. This method can take a single string, multiple strings, or a `RouteInfo` object identifying routes to be excluded, as shown below:
+
+```typescript
+
+consumer
+  .apply(LoggerMiddleware)
+  .exclude(
+    { path: 'cats', method: RequestMethod.GET },
+    { path: 'cats', method: RequestMethod.POST },
+    'cats/(.*)',
+  )
+  .forRoutes(CatsController);
+```
+
+exclude kullanılarak belli başlı methodlar ayrı tutulabilir.
+
+
+###### Multiple middleware[#](https://docs.nestjs.com/middleware#multiple-middleware)
+
+As mentioned above, in order to bind multiple middleware that are executed sequentially, simply provide a comma separated list inside the `apply()` method:
+
+```typescript
+
+consumer.apply(cors(), helmet(), logger).forRoutes(CatsController);
+```
+
+Birden fazla middleware fonksiyonu kullanılabilir.
+
+
+### Pipes
+
+Parse işlemleri için kullanılır.
+
+```typescript
+@Get(':id')
+async findOne(@Param('id', ParseIntPipe) id: number) {
+  return this.catsService.findOne(id);
+}
+```
+
+Number beklediğinden dolayı "abc" gibi bir girdi olursa hata dönecektir.
+
+```json
+{
+  "statusCode": 400,
+  "message": "Validation failed (numeric string is expected)",
+  "error": "Bad Request"
+}
+```
+
+###### Custom pipe
+
+```typescript
+validation.pipe.tsJS
+
+import { PipeTransform, Injectable, ArgumentMetadata } from '@nestjs/common';
+
+@Injectable()
+export class ValidationPipe implements PipeTransform {
+  transform(value: any, metadata: ArgumentMetadata) {
+    return value;
+  }
+}
+```
+
+Custom pipe yapılarak kullanılabilir.
+
+
+###### Schema based validation[#](https://docs.nestjs.com/pipes#schema-based-validation)
+
+Let's make our validation pipe a little more useful. Take a closer look at the `create()` method of the `CatsController`, where we probably would like to ensure that the post body object is valid before attempting to run our service method.
+
+**JS**
+
+```typescript
+
+@Post()
+async create(@Body() createCatDto: CreateCatDto) {
+  this.catsService.create(createCatDto);
+}
+```
+
+Let's focus in on the `createCatDto` body parameter. Its type is `CreateCatDto`:
+
+create-cat.dto.ts**JS**
+
+```typescript
+
+export class CreateCatDto {
+  name: string;
+  age: number;
+  breed: string;
+}
+```
+
+Kendi şemamızı oluşturarak validation işlemlerini gerçekleştirebiliriz.
+
+```typescript
+import { PipeTransform, Injectable, ArgumentMetadata, BadRequestException } from '@nestjs/common';
+import { ObjectSchema } from 'joi';
+
+@Injectable()
+export class JoiValidationPipe implements PipeTransform {
+  constructor(private schema: ObjectSchema) {}
+
+  transform(value: any, metadata: ArgumentMetadata) {
+    const { error } = this.schema.validate(value);
+    if (error) {
+      throw new BadRequestException('Validation failed');
+    }
+    return value;
+  }
+}
+```
+
+
+###### Binding validation pipes[#](https://docs.nestjs.com/pipes#binding-validation-pipes)
+
+Earlier, we saw how to bind transformation pipes (like `ParseIntPipe` and the rest of the `Parse*` pipes).
+
+Binding validation pipes is also very straightforward.
+
+In this case, we want to bind the pipe at the method call level. In our current example, we need to do the following to use the `JoiValidationPipe`:
+
+1. Create an instance of the `JoiValidationPipe`
+2. Pass the context-specific Joi schema in the class constructor of the pipe
+3. Bind the pipe to the method
+
+Joi schema example:
+
+```typescript
+
+const createCatSchema = Joi.object({
+  name: Joi.string().required(),
+  age: Joi.number().required(),
+  breed: Joi.string().required(),
+})
+
+export interface CreateCatDto {
+  name: string;
+  age: number;
+  breed: string;
+}
+```
+
+Joi kullanılarak gelen datanın required olması gerektiği yada number veya string olması gerektiği gibi validation işlemleri yapılabilir.
+
+```typescript
+@Post()
+@UsePipes(new JoiValidationPipe(createCatSchema))
+async create(@Body() createCatDto: CreateCatDto) {
+  this.catsService.create(createCatDto);
+}
+```
+
+
+###### Class validator[#](https://docs.nestjs.com/pipes#class-validator)
+
+> **WARNING**The techniques in this section require TypeScript, and are not available if your app is written using vanilla JavaScript.
+
+Let's look at an alternate implementation for our validation technique.
+
+Nest works well with the [class-validator](https://github.com/typestack/class-validator) library. This powerful library allows you to use decorator-based validation. Decorator-based validation is extremely powerful, especially when combined with Nest's **Pipe** capabilities since we have access to the `metatype` of the processed property. Before we start, we need to install the required packages:
+
+```bash
+
+$ npm i --save class-validator class-transformer
+```
+
+Once these are installed, we can add a few decorators to the `CreateCatDto` class. Here we see a significant advantage of this technique: the `CreateCatDto` class remains the single source of truth for our Post body object (rather than having to create a separate validation class).
+
+create-cat.dto.ts**JS**
+
+```typescript
+
+import { IsString, IsInt } from 'class-validator';
+
+export class CreateCatDto {
+  @IsString()
+  name: string;
+
+  @IsInt()
+  age: number;
+
+  @IsString()
+  breed: string;
+}
+```
+
+
+**validation.pipe.ts****JS**
+
+```typescript
+
+import { PipeTransform, Injectable, ArgumentMetadata, BadRequestException } from '@nestjs/common';
+import { validate } from 'class-validator';
+import { plainToInstance } from 'class-transformer';
+
+@Injectable()
+export class ValidationPipe implements PipeTransform<any> {
+  async transform(value: any, { metatype }: ArgumentMetadata) {
+    if (!metatype || !this.toValidate(metatype)) {
+      return value;
+    }
+    const object = plainToInstance(metatype, value);
+    const errors = await validate(object);
+    if (errors.length > 0) {
+      throw new BadRequestException('Validation failed');
+    }
+    return value;
+  }
+
+  private toValidate(metatype: Function): boolean {
+    const types: Function[] = [String, Boolean, Number, Array, Object];
+    return !types.includes(metatype);
+  }
+}
+```
+
+
+**main.ts****JS**
+
+```typescript
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.useGlobalPipes(new ValidationPipe());
+  await app.listen(3000);
+}
+bootstrap();
+```
+
+Global validate eklenebilir.
+
+
+### Guard
+
+Middleware işlemi kullanılabilir fakat sonrası için hangisinin kullanıcağını bilmediğinden burada patlıyor.
+
+*But middleware, by its nature, is dumb. It doesn't know which handler will be executed after calling the `next()` function*
+
+**HINT**Guards are executed **after** all middleware, but **before** any interceptor or pipe.*
+
+
+###### Authorization guard[#](https://docs.nestjs.com/guards#authorization-guard)
+
+As mentioned, **authorization** is a great use case for Guards because specific routes should be available only when the caller (usually a specific authenticated user) has sufficient permissions. The `AuthGuard` that we'll build now assumes an authenticated user (and that, therefore, a token is attached to the request headers). It will extract and validate the token, and use the extracted information to determine whether the request can proceed or not.
+
+auth.guard.ts**JS**
+
+```typescript
+
+import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
+import { Observable } from 'rxjs';
+
+@Injectable()
+export class AuthGuard implements CanActivate {
+  canActivate(
+    context: ExecutionContext,
+  ): boolean | Promise<boolean> | Observable<boolean> {
+    const request = context.switchToHttp().getRequest();
+    return validateRequest(request);
+  }
+}
 ```
